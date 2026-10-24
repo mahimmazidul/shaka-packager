@@ -1,4 +1,4 @@
- name: Build & Release packager
+name: Build & Release packager
 
 on:
   workflow_dispatch:
