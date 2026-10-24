@@ -21,7 +21,7 @@ jobs:
         with:
           ref: main
           submodules: recursive
-          fetch-depth: 0          # full history so git describe works properly
+          fetch-depth: 0
 
       - name: Tag for version string
         run: |
