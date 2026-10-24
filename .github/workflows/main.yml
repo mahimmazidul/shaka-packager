@@ -1,10 +1,9 @@
-name: Build & Release packager
+name: Build and Release packager
 
 on:
   workflow_dispatch:
 
 jobs:
-  # ── Linux (musl, fully static) ──────────────────────
   build-linux:
     runs-on: ubuntu-22.04
     container:
@@ -12,38 +11,27 @@ jobs:
     steps:
       - name: Install build tools
         run: |
-          apk add --no-cache \
-            build-base cmake ninja git python3 curl bash \
-            linux-headers
-
+          apk add --no-cache build-base cmake ninja git python3 curl bash linux-headers
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: main
           submodules: recursive
           fetch-depth: 0
-
       - name: Tag for version
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git tag -f v3.10.0-mahim
-
       - name: CMake configure
         run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DCMAKE_EXE_LINKER_FLAGS="-static"
-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_EXE_LINKER_FLAGS="-static"
       - name: CMake build
         run: cmake --build build --parallel "$(nproc)"
-
       - name: Verify
         run: |
           BIN="$(find build -name packager -type f -executable | head -1)"
           file "$BIN"
           "$BIN" --version
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -51,7 +39,6 @@ jobs:
           path: build/packager/packager
           if-no-files-found: error
 
-  # ── Windows (MSVC, static CRT) ──────────────────────
   build-windows:
     runs-on: windows-latest
     steps:
@@ -61,32 +48,22 @@ jobs:
           ref: main
           submodules: recursive
           fetch-depth: 0
-
       - name: Tag for version
         run: |
           git config --global --add safe.directory "$env:GITHUB_WORKSPACE"
           git tag -f v3.10.0-mahim
-
       - name: CMake configure
-        run: |
-          cmake -S . -B build `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DBUILD_SHARED_LIBS=OFF `
-            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
-
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_CXX_STANDARD=17 -DABSL_PROPAGATE_CXX_STD=ON -DABSL_BUILD_TESTING=OFF
       - name: CMake build
         run: cmake --build build --config Release --parallel
-
       - name: Find and verify binary
         id: find
         shell: pwsh
         run: |
-          $bin = Get-ChildItem -Path build -Recurse -Filter "packager.exe" |
-                 Select-Object -First 1
+          $bin = Get-ChildItem -Path build -Recurse -Filter "packager.exe" | Select-Object -First 1
           Write-Host "Found: $($bin.FullName)"
           & $bin.FullName --version
           "BIN_PATH=$($bin.FullName)" >> $env:GITHUB_OUTPUT
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -94,7 +71,6 @@ jobs:
           path: ${{ steps.find.outputs.BIN_PATH }}
           if-no-files-found: error
 
-  # ── Release both binaries together ──────────────────
   release:
     needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
@@ -106,29 +82,19 @@ jobs:
         with:
           name: packager-linux-x64
           path: release-assets
-
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
           name: packager-windows-x64
           path: release-assets-win
-
       - name: Rename Windows binary
-        run: |
-          mv release-assets-win/packager.exe release-assets/packager.exe
-
+        run: mv release-assets-win/packager.exe release-assets/packager.exe
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v3.10.0-mahim
           name: v3.10.0-mahim
-          body: |
-            Static builds of Shaka Packager with fMP4 segfault fix (#1368).
-
-            | Asset | Platform |
-            |---|---|
-            | `packager` | Linux x86-64 (musl, fully static) |
-            | `packager.exe` | Windows x86-64 (MSVC, static CRT) |
+          body: "Static builds of Shaka Packager with fMP4 segfault fix (#1368). Linux x86-64 (musl) + Windows x86-64 (MSVC)."
           files: |
             release-assets/packager
             release-assets/packager.exe
