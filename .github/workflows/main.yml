@@ -1,0 +1,66 @@
+name: Build static packager (musl)
+
+on:
+  workflow_dispatch:          # lets you click "Run workflow" manually
+  push:
+    paths:
+      - '.github/workflows/build-static.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      # ── system deps ──────────────────────────────────
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build python3 curl ca-certificates
+
+      # ── musl cross-compiler ──────────────────────────
+      - name: Download musl toolchain
+        run: |
+          curl -fsSL https://musl.cc/x86_64-linux-musl-cross.tgz | \
+            tar -xz -C /opt
+          echo "/opt/x86_64-linux-musl-cross/bin" >> "$GITHUB_PATH"
+
+      # ── source code ──────────────────────────────────
+      - name: Checkout (with fix)
+        uses: actions/checkout@v4
+        with:
+          # Pin to the fix commit; change to 'main' if you want latest
+          ref: b540ed842fbb309537065e2c20535d7ac3f68fbf
+          submodules: recursive
+
+      # ── configure ────────────────────────────────────
+      - name: CMake configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_C_COMPILER=x86_64-linux-musl-gcc \
+            -DCMAKE_CXX_COMPILER=x86_64-linux-musl-g++ \
+            -DCMAKE_EXE_LINKER_FLAGS="-static"
+
+      # ── build ────────────────────────────────────────
+      - name: CMake build
+        run: cmake --build build --parallel "$(nproc)"
+
+      # ── sanity check ────────────────────────────────
+      - name: Verify binary
+        run: |
+          BIN="$(find build -name packager -type f -executable | head -1)"
+          echo "Binary: $BIN"
+          file "$BIN"
+          ldd "$BIN" 2>&1 || true        # should say "not a dynamic executable"
+          "$BIN" --version || true
+
+      # ── upload ───────────────────────────────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: packager-linux-x64-static
+          path: ${{ env.BIN_PATH }}
+          if-no-files-found: error
+        env:
+          BIN_PATH: build/packager/packager
