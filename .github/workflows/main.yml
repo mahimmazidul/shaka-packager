@@ -10,20 +10,24 @@ jobs:
       image: alpine:3.20
 
     steps:
-      # ── system deps (Alpine's gcc already links musl) ──
       - name: Install build tools
         run: |
           apk add --no-cache \
-            build-base cmake ninja git python3 curl bash
+            build-base cmake ninja git python3 curl bash \
+            linux-headers
 
-      # ── source code ────────────────────────────────────
-      - name: Checkout (with fix)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: b540ed842fbb309537065e2c20535d7ac3f68fbf
+          ref: main
           submodules: recursive
+          fetch-depth: 0          # full history so git describe works properly
 
-      # ── configure ──────────────────────────────────────
+      - name: Tag for version string
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git tag -f v3.10.0-mahim
+
       - name: CMake configure
         run: |
           cmake -S . -B build -G Ninja \
@@ -31,11 +35,9 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF \
             -DCMAKE_EXE_LINKER_FLAGS="-static"
 
-      # ── build ──────────────────────────────────────────
       - name: CMake build
         run: cmake --build build --parallel "$(nproc)"
 
-      # ── sanity check ──────────────────────────────────
       - name: Verify binary
         run: |
           BIN="$(find build -name packager -type f -executable | head -1)"
@@ -44,7 +46,6 @@ jobs:
           ldd "$BIN" 2>&1 || true
           "$BIN" --version || true
 
-      # ── upload ─────────────────────────────────────────
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
